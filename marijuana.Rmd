@@ -1,0 +1,287 @@
+---
+title: "treatment"
+author: "DAHEE"
+date: "12/7/2017"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r}
+library(tidyverse)
+library(stringr)
+library(tableone)
+library(mlr)
+library(mi)
+load("/Users/daheelee/Desktop/lhs_2/36361-0001-Data.rda")
+```
+#Include other variable (seeing a doctor)
+```{r}
+doctor= da36361.0001 %>%
+  select(CATAG3,ADWRDLOT) %>%
+  rename(age= CATAG3, suiThink=ADWRDLOT) %>% 
+  mutate_if(is.character, as.factor)
+
+head(doctor)
+```
+#Coding
+```{r}
+
+doctor_coding = doctor %>% 
+  mutate(age = case_when (age == '(1) 12-17 Years Old'~1,
+                          age == '(2) 18-25 Years Old'~2,
+                          age == '(3) 26-34 Years Old'~3,
+                          age == '(4) 35-49 Years Old'~4,
+                          age == '(5) 50 or Older'~5))%>% 
+   mutate(suiThink = case_when (suiThink == '(1) Yes'~'y',
+                          suiThink == '(2) No'~'n')) 
+ 
+
+doctor_adult=doctor_coding %>% 
+  filter(age>2) %>% 
+  select(age, suiThink) 
+
+
+head(doctor_adult)
+doctor_na = doctor_adult%>% 
+  filter(!is.na(suiThink))
+
+doctor_na %>% 
+  missing_data.frame()
+
+```
+
+## convert to factor &  Create dummy variables
+```{r}
+dummy_doctor=doctor_na %>% 
+  mutate_if(is.character, as.factor) %>% 
+    createDummyFeatures()
+
+dummy_doctor = dummy_doctor %>% select(-suiThink.n)
+dummy_doctor$suiThink.y = as.factor(dummy_doctor$suiThink.y)
+
+```
+## Split the data in train and test
+```{r}
+set.seed(1)
+
+n <- nrow(dummy_doctor)
+shuffled <- dummy_doctor[sample(n),]
+
+
+train_doctor <- shuffled[1:round(0.7 * n),]
+test_doctor <- shuffled[(round(0.7 * n) + 1):n,]
+
+
+```
+#Assign the task
+```{r}
+train_task_doctor = makeClassifTask(data = train_doctor,
+                             target = 'suiThink.y',
+                             positive = 1)
+
+
+```
+#Resampling
+```{r}
+lrn_doctor = makeLearner('classif.naiveBayes', predict.type='prob')
+resample_method = makeResampleDesc('CV',  iters = 3)
+set.seed(1000)
+resample_performance_doctor = resample(learner = lrn_doctor,
+                                task = train_task_doctor,
+                                resampling = resample_method,
+                                measures = list(acc, auc, ppv, tpr))
+resample_performance_doctor$measures.test
+```
+# Visualization 
+```{r}
+d = generateThreshVsPerfData(resample_performance_doctor, measures = list(fpr, fnr, mmce))
+
+
+plotThreshVsPerf(d)
+```
+
+
+#prepare the data
+##seclect variable
+1)predictive variable : age, sex, tobacco, alcohol, marijuana, cocaine, employment, education, decreased appetite, increased appetite
+2)outcome : think about Suicide, suicide would be better, commit suicide, plan suicide
+```{r}
+
+dataset= da36361.0001 %>%
+  select(CATAG3, IRSEX, CIGEVER, ALCEVER, MJEVER, COCEVER, JBSTATR2, EDUCCAT2, ADWRELES, ADWREMOR, ADWRDLOT, ADWRDBTR, ADWRSTHK, ADWRSPLN, ADWRSATP) %>%
+  rename(age= CATAG3, sex=IRSEX, tobacco=CIGEVER, alcohol=ALCEVER, marijuana= MJEVER, cocaine= COCEVER, job=JBSTATR2, education=EDUCCAT2, eatingSmall = ADWRELES, eatingLarge= ADWREMOR,  suiThink=ADWRDLOT) %>% 
+  mutate_if(is.character, as.factor)
+
+nrow(da36361.0001)
+```
+## Coding variable, only adult, suicide(even think)
+I recode the variable name readable
+```{r}
+
+data_coding = dataset %>% 
+  mutate(age = case_when (age == '(1) 12-17 Years Old'~1,
+                          age == '(2) 18-25 Years Old'~2,
+                          age == '(3) 26-34 Years Old'~3,
+                          age == '(4) 35-49 Years Old'~4,
+                          age == '(5) 50 or Older'~5))%>% 
+  mutate(sex = case_when (sex == '(1) Male'~ 'm',
+                          sex == '(2) Female'~'f'))%>% 
+  mutate(tobacco = case_when (tobacco == '(1) Yes'~'y',
+                          tobacco == '(2) No'~'n')) %>% 
+  mutate(alcohol = case_when (alcohol == '(1) Yes'~'y',
+                          alcohol == '(2) No'~'n')) %>% 
+  mutate(marijuana = case_when (marijuana == '(1) Yes'~'y',
+                          marijuana == '(2) No'~'n')) %>% 
+  mutate(cocaine = case_when (cocaine == '(1) Yes'~'y',
+                          cocaine == '(2) No'~'n')) %>% 
+  mutate(job = case_when (job == "(01) Worked at full-time job, past week"~'full',
+                          job == "(02) Worked at part time job, past week"~'part',
+                          job == "(3) Some college (IREDUC2=9-10 and AGE2>=7)"~'some',
+                          job == "(04) Unemployed/on layoff, looking for work"~'unemployed',
+                          job == "(05) Disabled"~'disabled',
+                          job == "(06) Keeping house full-time"~'house',
+                          job == "(07) In school/training"~'school',
+                          job == "(08) Retired"~'retired')) %>%
+  mutate(education = case_when (education == "(1) Less than high school (IREDUC2<=7 and AGE2>=7)"~'<high',
+                          education == "(2) High school graduate (IREDUC2=8 and AGE2>=7)"~'high',
+                          education == "(3) Some college (IREDUC2=9-10 and AGE2>=7)"~'some',
+                          education == "(4) College graduate (IREDUC2=11 and AGE2>=7)"~'gradutate',
+                          education == "(5) 12 to 17 year olds (AGE2<=6)"~'12-17yr')) %>% 
+  mutate(eatingSmall = case_when (eatingSmall == '(1) Yes'~'y',
+                          eatingSmall == '(2) No'~'n')) %>% 
+  mutate(eatingLarge = case_when (eatingLarge == '(1) Yes'~'y',
+                          eatingLarge == '(2) No'~'n')) %>% 
+  mutate(suiThink = case_when (suiThink == '(1) Yes'~'y',
+                          suiThink == '(2) No'~'n')) 
+  
+```
+## count outcome variable
+1) I expect that the number of planning suicide would not many. I checked it. I got 6513 data available, which is good enough. 
+```{r}
+data_coding %>% 
+  group_by(suiThink) %>% 
+  count()
+```
+
+##Select adult 
+1) in our dataset, they consider adult as above 26 years old. So, I only select those above '2' which is '(2) 18-25 Years Old'.
+```{r}
+adult=data_coding %>% 
+  filter(age>2) %>% 
+  select(age, sex, tobacco, alcohol,marijuana, cocaine, job, education, eatingSmall, eatingLarge, suiThink) 
+
+
+adult= adult%>% 
+  filter(!is.na(suiThink))
+```
+## Missingness of the data
+####simple count
+```{r}
+age= sum(is.na(adult$age))
+sex= sum(is.na(adult$sex))
+tobacco=sum(is.na(adult$tobacco))
+alcohol=sum(is.na(adult$alcohol))
+marijuana=sum(is.na(adult$marijuana))
+cocaine=sum(is.na(adult$cocaine))
+job=sum(is.na(adult$job))
+education=sum(is.na(adult$education))
+eatingSmall=sum(is.na(adult$eatingSmall))
+eatingLarge=sum(is.na(adult$eatingLarge))
+suiThink=sum(is.na(adult$suiThink))
+
+num_missing= data.frame(age, sex, tobacco, alcohol, marijuana,cocaine, job, education, eatingSmall,eatingLarge, suiThink )
+num_missing
+
+nrow(adult)
+```
+##Analyze missingness
+cocain, marijuana, cocain, eatingSmall and eatingLarge have missing variables. I use CreateTableOne to see if there is any dependency to other variables
+1) We cannot see any dependency in here except eatingLarge
+2) It is interesting that the correlation between missingness for eatingLarge and education, eatingSmall and suicide think is statistically significant 
+
+```{r}
+adult %>% 
+  missing_data.frame()
+
+adult %>%
+  mutate(missing=is.na(marijuana)) %>%
+  CreateTableOne(strata='missing',data=.) 
+
+adult %>% 
+  mutate(missing=is.na(cocaine)) %>%
+  CreateTableOne(strata='missing',data=.) 
+
+adult %>% 
+  mutate(missing=is.na(job)) %>%
+  CreateTableOne(strata='missing',data=.) 
+
+adult %>% 
+  mutate(missing=is.na(eatingSmall)) %>%
+  CreateTableOne(strata='missing',data=.) 
+
+adult %>% 
+  mutate(missing=is.na(eatingLarge)) %>%
+  CreateTableOne(strata='missing',data=.) 
+```
+#Naive-Bayes
+##convert to factor &  Create dummy variables
+1) proportion of outcome : 0.49 
+```{r}
+dummy_naive=adult %>% 
+  mutate_if(is.character, as.factor) %>% 
+    createDummyFeatures()
+
+head(adult)
+
+dummy_naive = dummy_naive %>% select(-suiThink.n)
+dummy_naive$suiThink.y = as.factor(dummy_naive$suiThink.y)
+
+dummy_naive %>% 
+  group_by(suiThink.y) %>% 
+  count()
+```
+
+# Split the data in train and test
+```{r}
+set.seed(1)
+
+n <- nrow(dummy_naive)
+shuffled <- dummy_naive[sample(n),]
+
+
+train_naive <- shuffled[1:round(0.7 * n),]
+test_naive <- shuffled[(round(0.7 * n) + 1):n,]
+```
+#Assign the task
+```{r}
+train_task_naive = makeClassifTask(data = train_naive,
+                             target = 'suiThink.y',
+                             positive = 1)
+
+
+```
+#Resampling
+```{r}
+lrn_naive = makeLearner('classif.naiveBayes', predict.type='prob')
+resample_method = makeResampleDesc('CV',  iters = 5)
+set.seed(1000)
+resample_performance_naive = resample(learner = lrn_naive,
+                                task = train_task_naive,
+                                resampling = resample_method,
+                                measures = list(acc, auc, ppv, tpr))
+resample_performance_naive$measures.test
+```
+## Visualization 
+```{r}
+d = generateThreshVsPerfData(resample_performance_naive, measures = list(fpr, fnr, mmce))
+
+
+plotThreshVsPerf(d)
+```
+
+# ROC curve
+```{r}
+df = generateThreshVsPerfData(resample_performance_naive, measures = list(fpr, tpr, mmce))
+plotROCCurves(df)
+```
