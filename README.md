@@ -1,6 +1,6 @@
 # MLproject
 
-##Purpose
+## Purpose
 To develop a prediction model and envision how the results of the prediction may shape decision-making by the primary stakeholder, which might be patients, physicians, insurance companies, policymakers or others. 
 
 ## Dataset
